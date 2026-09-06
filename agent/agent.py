@@ -299,9 +299,13 @@ async def entrypoint(ctx: JobContext) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    import os
+    port = int(os.getenv("PORT", "8081"))
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name="voice-receptionist",
+            port=port,
+            host="0.0.0.0",
         )
     )
