@@ -1,0 +1,3 @@
+# Pyrefly configuration for voice agent project
+python-interpreter-path = "agent/voice-env/Scripts/python.exe"
+search-path = ["agent"]

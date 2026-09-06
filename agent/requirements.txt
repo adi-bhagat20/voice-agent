@@ -1,0 +1,12 @@
+# Python requirements for the LiveKit voice agent worker
+# Install: pip install -r requirements.txt
+#
+# Version strategy: use >= lower bound to get latest bugfixes within the
+# compatible range, which is safe because livekit-agents uses semver.
+# The [sarvam,deepgram,groq,silero] extras pull in the official plugins.
+
+# Core LiveKit agents framework with required plugins
+livekit-agents[sarvam,deepgram,groq,silero,noise-cancellation]>=1.8.0
+
+# Env var loading
+python-dotenv>=1.0.0
