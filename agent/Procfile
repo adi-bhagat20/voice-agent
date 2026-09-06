@@ -1,5 +1,1 @@
-# Procfile for Railway/Render deployment
-# Railway will run this command to start the agent worker.
-# The worker registers with LiveKit and waits for dispatch — it stays alive
-# for the entire lifetime of the dyno/instance.
-web: python agent.py start
+worker: python agent.py start
