@@ -1,225 +1,272 @@
-# "Call Me" — AI Voice Agent Demo
+<div align="center">
 
-> **Live demo for Acuron AI.** A visitor fills a short web form → an AI voice agent calls their phone → short spoken conversation → hangs up.
+# 🎙️ "Call Me" — AI Voice Agent Demo
+
+**Real-Time Outbound AI Voice Assistant powered by LiveKit, Deepgram, Groq & Sarvam AI**
+
+[![Python 3.13](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
+[![Next.js 15](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
+[![LiveKit Agents](https://img.shields.io/badge/LiveKit_Agents-1.8.0-red.svg)](https://livekit.io/)
+[![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-orange.svg)](https://groq.com/)
+[![Sarvam AI](https://img.shields.io/badge/Sarvam_AI-Bulbul_TTS-purple.svg)](https://www.sarvam.ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+<p align="center">
+  A visitor submits their name and phone number on a modern web app &rarr; an AI voice receptionist calls their phone within seconds &rarr; holds an ultra-low-latency, natural spoken conversation &rarr; hangs up gracefully.
+</p>
+
+</div>
 
 ---
 
-## How it works
+## ⚡ System Architecture
 
-```
-Browser form (Vercel)
-  └─ POST /api/call
-        └─ Creates LiveKit room + dispatches agent + creates SIP participant
-              └─ LiveKit → dispatches Python worker (Railway/Render)
-                    └─ Python worker: Deepgram STT → Groq LLM → Sarvam TTS
-                          └─ LiveKit SIP bridge → Vobiz → caller's phone
-```
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 👤 Caller (Phone)
+    participant Web as 🌐 Web UI (Next.js / Vercel)
+    participant LK as ☁️ LiveKit Cloud & SIP Bridge
+    participant Worker as 🤖 Python Worker (Railway/Render)
+    participant AI as 🧠 AI Pipeline (Deepgram + Groq + Sarvam)
 
-Two services, always running. The web service only kicks things off; the actual voice conversation lives in the Python worker.
+    User->>Web: Submits name & phone number
+    Web->>LK: POST /api/call (Create room + dispatch worker + create SIP participant)
+    Web-->>User: Redirects to live call-status tracker
+    LK->>User: Outbound telephone call via SIP Trunk (Vobiz)
+    User->>LK: Answers phone call
+    LK->>Worker: Worker assigned to LiveKit room
+    Worker->>LK: Connects audio stream
+    Worker->>AI: Synthesizes personalized greeting
+    AI-->>User: "Hi, is this [Name]? I'm Priya from Acuron AI..."
+    
+    loop Real-Time Voice Conversation
+        User->>Worker: Caller speaks
+        Worker->>AI: Deepgram STT (Nova-2 streaming)
+        AI->>Worker: Live transcript
+        Worker->>AI: Groq LLM (Llama 3.3 70B Versatile)
+        AI->>Worker: Generated response stream
+        Worker->>AI: Sarvam TTS (Bulbul:v2)
+        AI-->>User: Audio playback with Silero VAD barge-in
+    end
+
+    User->>Worker: Says goodbye or hits timeout
+    Worker->>LK: Leaves room & terminates call
+```
 
 ---
 
-## Accounts you need to create (once)
+## 🛠️ Tech Stack & AI Pipeline
 
-| Service | What for | Free tier enough? |
+| Component | Provider / Technology | Description |
 |---|---|---|
-| [LiveKit Cloud](https://cloud.livekit.io) | Real-time media + SIP bridge | Yes (dev tier) |
-| [Vobiz](https://vobiz.in) | SIP trunk for India outbound calls | Requires top-up (~₹100) |
-| [Deepgram](https://deepgram.com) | Speech-to-text | Yes ($200 free credit) |
-| [Groq](https://console.groq.com) | LLM inference | Yes (free tier) |
-| [Sarvam AI](https://app.sarvam.ai) | Indian-language TTS | Yes (free tier) |
-| [Vercel](https://vercel.com) | Host the Next.js web app | Yes (Hobby) |
-| [Railway](https://railway.app) | Host the Python agent | Yes ($5 credit) |
+| **Web Frontend** | Next.js 15 (App Router), TypeScript, CSS Modules | Clean, responsive call request form and live status monitor |
+| **Media & Telephony** | LiveKit Cloud + SIP Trunking (Vobiz) | WebRTC real-time audio rooms and PSTN outbound telephone calls |
+| **Speech-to-Text (STT)** | Deepgram (`nova-2`) | Streaming, ultra-fast transcription tuned for conversational phone audio |
+| **Language Model (LLM)** | Groq (`llama-3.3-70b-versatile`) | Blazing fast sub-200ms token generation for human-paced responses |
+| **Text-to-Speech (TTS)** | Sarvam AI (`bulbul:v2`) | High-fidelity Indian English & multilingual voice synthesis |
+| **Voice Activity Detection** | Silero VAD | Real-time speech detection and seamless user interruption (barge-in) |
+| **Worker Framework** | LiveKit Agents Python SDK 1.8 | Asynchronous pipeline orchestrating STT &rarr; LLM &rarr; TTS |
 
 ---
 
-## Setup — Step by Step
-
-### 1. Clone the repo
-
-```bash
-git clone <your-repo-url>
-cd voice-agent-demo
-```
-
-### 2. Set up the LiveKit outbound SIP trunk (Vobiz)
-
-This is done once via the LiveKit CLI or dashboard — the trunk ID is stored server-side.
-
-```bash
-# Install the LiveKit CLI
-npm install -g @livekit/livekit-cli
-
-# Log in
-lk cloud auth
-
-# Create an outbound trunk (replace values with your Vobiz SIP credentials)
-lk sip outbound create \
-  --name "vobiz-india" \
-  --address "<vobiz-sip-host>" \
-  --username "<vobiz-username>" \
-  --password "<vobiz-password>" \
-  --numbers "+91XXXXXXXXXX"   # Your Vobiz caller-ID number
-```
-
-Copy the returned **Trunk ID** — you'll paste it into `web/.env.local` below.
-
-### 3. Configure the Python agent (`agent/`)
-
-```bash
-cd agent
-cp .env.example .env
-```
-
-Edit `agent/.env` and fill in:
+## 📁 Repository Structure
 
 ```
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=APIxxxxxxx
-LIVEKIT_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-DEEPGRAM_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SARVAM_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+voice-agent/
+├── .gitignore                      # Excludes secrets, venvs, node_modules
+├── pyrefly.toml                    # Pyrefly Python type-checker configuration
+├── PRD.md                          # Product Requirements Document
+├── README.md                       # Complete setup & deployment guide
+├── docs/
+│   └── DEMO_SCRIPT.md              # Step-by-step live demo script
+├── agent/                          # Python Voice Agent Worker
+│   ├── .env.example                # Example environment variables for worker
+│   ├── agent.py                    # Worker entrypoint and audio pipeline
+│   ├── persona.py                  # Agent personality, prompts & greetings
+│   ├── requirements.txt            # Python dependencies (Python 3.13)
+│   └── Procfile                    # Deployment process definition (Railway)
+└── web/                            # Next.js Web Application
+    ├── .env.example                # Example environment variables for web
+    ├── package.json                # Web package scripts and dependencies
+    ├── next.config.ts              # Next.js configuration
+    └── src/
+        ├── app/
+        │   ├── page.tsx            # Main call request form
+        │   ├── globals.css         # Design tokens & styling
+        │   ├── api/call/route.ts   # API to trigger LiveKit SIP dispatch
+        │   ├── api/call-status/    # Live call polling endpoint
+        │   └── call-status/[id]/   # Visual status tracker UI
+        └── lib/
+            └── livekit-server.ts   # LiveKit Server SDK helper
 ```
-
-Install dependencies:
-
-```bash
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### 4. Run the agent in console mode (local sanity check — no phone call)
-
-```bash
-python agent.py console
-```
-
-You should see the agent start, connect to LiveKit, and in the console you can type messages to test the conversation. Verify you see:
-- `STT RESULT:` lines (input)
-- `LLM reply` output
-- TTS audio in the console player
-
-### 5. Configure the web app (`web/`)
-
-```bash
-cd ../web
-cp .env.example .env.local
-```
-
-Edit `web/.env.local`:
-
-```
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=APIxxxxxxx
-LIVEKIT_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SIP_OUTBOUND_TRUNK_ID=ST_xxxxxxxxxxxxxxxx
-```
-
-Install and run:
-
-```bash
-npm install
-npm run dev
-```
-
-Open http://localhost:3000 — you should see the form.
-
-### 6. Deploy the agent (Railway)
-
-1. Push your repo to GitHub.
-2. In Railway: **New Project → Deploy from GitHub repo** → select your repo → set the root directory to `agent/`.
-3. Add the environment variables from `agent/.env` in the Railway dashboard.
-4. Deploy. Check logs — you should see `Worker registered with LiveKit`.
-
-### 7. Deploy the web app (Vercel)
-
-1. In Vercel: **Import Project → GitHub** → select your repo → set root directory to `web/`.
-2. Add the environment variables from `web/.env.local` in the Vercel dashboard.
-3. Deploy.
-
-### 8. End-to-end test
-
-1. Open your Vercel URL.
-2. Fill in your own name and phone number.
-3. Submit — your phone should ring within ~10 seconds.
-4. Have a short conversation and hang up.
-5. Verify no errors in Railway logs.
 
 ---
 
-## Customising the agent
+## 🚀 Getting Started Locally
 
-Edit **`agent/persona.py`** only. It contains:
-- `AGENT_NAME` — what the agent calls itself
-- `BUSINESS_NAME` — the company name
-- `SYSTEM_PROMPT` — the conversation instructions
-- `GREETING_WITH_NAME` / `GREETING_GENERIC` — opening lines
-- `GOODBYE_PHRASES` — words that trigger a graceful hang-up
-- `MAX_CALL_DURATION_SECONDS` — hard timeout (default 3 minutes)
-
-No other file needs to change for a different persona.
-
----
-
-## Architecture notes
-
-- **Vercel timeout**: The `/api/call` route only creates a room + dispatches + creates a SIP participant — it returns in <2 seconds, well under Vercel's 10s limit. The actual call runs in Railway.
-- **Named agent dispatch**: The web trigger dispatches to `voice-receptionist` by name. The Python worker must be running and registered with that name for dispatch to succeed.
-- **Vobiz credentials**: These live inside the LiveKit outbound trunk config — never in code or env vars.
-- **One call at a time**: This is a demo. There's no queue, no concurrency handling.
+### Prerequisites
+- **Python 3.13** (recommended for LiveKit Agents 1.8)
+- **Node.js 18+** & `npm`
+- **Accounts & API Keys**:
+  - [LiveKit Cloud](https://cloud.livekit.io/) (URL, API Key, API Secret)
+  - [Deepgram Console](https://console.deepgram.com/) (API Key)
+  - [Groq Console](https://console.groq.com/) (API Key)
+  - [Sarvam AI](https://app.sarvam.ai/) (API Key)
+  - [Vobiz](https://vobiz.in/) (or any SIP trunking provider for phone calls)
 
 ---
 
-## Troubleshooting
+### Step 1: Clone the Repository
 
-| Symptom | Check |
-|---|---|
-| Phone doesn't ring | Railway logs — is the worker running? LiveKit dashboard — did the room get created? Is the trunk ID correct? |
-| Agent joins but is silent | Deepgram key valid? Sarvam key valid? Check Railway logs for TTS errors. |
-| "Bad phone format" error | Number must be `+91XXXXXXXXXX` (E.164 format with country code). |
-| Vercel API route times out | Shouldn't happen — if it does, check LiveKit API key/secret. |
-| Call drops immediately | Check Vobiz SIP trunk config — the SIP server address and credentials. |
-
----
-
-## Recording the demo (fallback plan)
-
-Before the interview, record a full end-to-end screen capture:
-- Form submission
-- Phone ringing
-- Conversation
-- Clean hang-up
-
-If anything fails live (carrier hiccup, cold-started dyno, wifi), the recording saves the demo.
-
----
-
-## Project structure
-
+```bash
+git clone https://github.com/adi-bhagat20/voice-agent.git
+cd voice-agent
 ```
-voice-agent-demo/
-├── README.md
-├── web/                    # Next.js → Vercel
-│   ├── .env.example
-│   ├── package.json
-│   ├── app/
-│   │   ├── page.tsx                        # Call form
-│   │   ├── call-status/[id]/page.tsx       # Polling status view
-│   │   └── api/call/route.ts               # Call trigger API
-│   └── lib/
-│       └── livekit-server.ts               # LiveKit server SDK wrapper
-├── agent/                  # Python worker → Railway/Render
-│   ├── .env.example
-│   ├── requirements.txt
-│   ├── agent.py            # Main entrypoint
-│   ├── persona.py          # ← Edit this to change the agent persona
-│   └── Procfile
-└── docs/
-    └── DEMO_SCRIPT.md      # Step-by-step demo instructions
-```
+
+---
+
+### Step 2: Set Up & Test the Python Agent
+
+1. Navigate to `agent/` and set up your virtual environment:
+   ```bash
+   cd agent
+   py -3.13 -m venv voice-env
+   ```
+
+2. Activate the virtual environment:
+   - **Windows (PowerShell)**:
+     ```powershell
+     .\voice-env\Scripts\activate
+     ```
+   - **macOS / Linux**:
+     ```bash
+     source voice-env/bin/activate
+     ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` with your API keys:
+   ```env
+   LIVEKIT_URL=wss://your-project.livekit.cloud
+   LIVEKIT_API_KEY=your_livekit_api_key
+   LIVEKIT_API_SECRET=your_livekit_api_secret
+   DEEPGRAM_API_KEY=your_deepgram_key
+   GROQ_API_KEY=your_groq_key
+   SARVAM_API_KEY=your_sarvam_key
+   ```
+
+5. Run local test in **Console Mode** (no phone call required):
+   ```bash
+   python agent.py console
+   ```
+   *Type in the console to test the prompt, persona, and voice response pipeline.*
+
+6. Run the agent worker:
+   ```bash
+   python agent.py start
+   ```
+
+---
+
+### Step 3: Set Up & Run the Web Application
+
+1. Open a new terminal in the `web/` directory:
+   ```bash
+   cd web
+   npm install
+   ```
+
+2. Configure environment variables:
+   ```bash
+   cp .env.example .env.local
+   ```
+   Edit `.env.local`:
+   ```env
+   LIVEKIT_URL=wss://your-project.livekit.cloud
+   LIVEKIT_API_KEY=your_livekit_api_key
+   LIVEKIT_API_SECRET=your_livekit_api_secret
+   SIP_OUTBOUND_TRUNK_ID=ST_xxxxxxxxxxxxxxxx
+   ```
+
+3. Start development server:
+   ```bash
+   npm run dev
+   ```
+   Visit `http://localhost:3000` to access the call request form.
+
+---
+
+## 📞 Outbound SIP Trunk Configuration (Vobiz)
+
+To place outbound phone calls to Indian numbers (+91), configure your SIP trunk in LiveKit:
+
+1. Install the LiveKit CLI:
+   ```bash
+   npm install -g @livekit/livekit-cli
+   ```
+2. Authenticate with LiveKit Cloud:
+   ```bash
+   lk cloud auth
+   ```
+3. Create the outbound SIP trunk:
+   ```bash
+   lk sip outbound create \
+     --name "vobiz-india" \
+     --address "<vobiz-sip-host>" \
+     --username "<vobiz-username>" \
+     --password "<vobiz-password>" \
+     --numbers "+91XXXXXXXXXX"
+   ```
+4. Copy the resulting **Trunk ID** (`ST_...`) into `web/.env.local` as `SIP_OUTBOUND_TRUNK_ID`.
+
+---
+
+## 🎭 Customizing Agent Persona & Instructions
+
+All personality, instructions, greeting styles, and conversation boundaries are centralized in [`agent/persona.py`](agent/persona.py):
+
+- **`AGENT_NAME`**: Name of the assistant (default: `"Priya"`).
+- **`BUSINESS_NAME`**: Company represented (default: `"Acuron AI"`).
+- **`SYSTEM_PROMPT`**: Detailed instructions, tone, and conversation goals.
+- **`GREETING_WITH_NAME`**: Personalized opening line when the caller provides a name.
+- **`GOODBYE_PHRASES`**: Phrases triggering an immediate, polite hangup.
+- **`MAX_CALL_DURATION_SECONDS`**: Hard safety cap on call length (default: 180 seconds).
+
+---
+
+## 🌐 Production Deployment
+
+### 1. Agent Worker &rarr; [Railway](https://railway.app/)
+1. Create a new Railway project and choose **Deploy from GitHub Repo**.
+2. Select `voice-agent`.
+3. Set the **Root Directory** to `/agent`.
+4. Under **Variables**, add all keys from `agent/.env`.
+5. Railway will automatically detect the [`Procfile`](agent/Procfile) (`worker: python agent.py start`) and start the persistent worker.
+
+### 2. Web UI &rarr; [Vercel](https://vercel.com/)
+1. Import your `voice-agent` repository into Vercel.
+2. Set the **Root Directory** to `web`.
+3. Add the environment variables from `web/.env.local`.
+4. Deploy!
+
+---
+
+## 🛡️ Security & Best Practices
+
+- **Never commit `.env` or `.env.local` files**: Both are strictly excluded in `.gitignore`.
+- **Server-side only credentials**: LiveKit API secrets, Deepgram keys, Groq keys, and Sarvam keys remain strictly on the backend worker and serverless route.
+- **Hard Call Timeouts**: Calls automatically terminate after 3 minutes to avoid dangling trunk charges.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
