@@ -37,9 +37,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { name, phone, context } = body as {
+  const { name, phone, company, useCase, context } = body as {
     name?: string;
     phone?: string;
+    company?: string;
+    useCase?: string;
     context?: string;
   };
 
@@ -63,6 +65,8 @@ export async function POST(req: NextRequest) {
 
   const callerName = name.trim().slice(0, 80);
   const callerPhone = phone.trim();
+  const callerCompany = (company ?? "").trim().slice(0, 100);
+  const callerUseCase = (useCase ?? "").trim().slice(0, 100);
   const callerContext = (context ?? "").trim().slice(0, 500);
 
   // ── unique room name for this call ────────────────────────────────────────
@@ -70,7 +74,7 @@ export async function POST(req: NextRequest) {
   const roomName = `call-${timestamp}-${callerName.toLowerCase().replace(/\s+/g, "-").slice(0, 20)}`;
 
   console.log(
-    `[/api/call] Incoming call request | name=${callerName} phone=${callerPhone} room=${roomName}`
+    `[/api/call] Incoming call request | name=${callerName} company=${callerCompany} useCase=${callerUseCase} phone=${callerPhone} room=${roomName}`
   );
 
   try {
@@ -80,6 +84,8 @@ export async function POST(req: NextRequest) {
     const roomClient = getRoomServiceClient();
     const metadata = JSON.stringify({
       caller_name: callerName,
+      caller_company: callerCompany,
+      caller_use_case: callerUseCase,
       caller_context: callerContext,
     });
 
@@ -94,7 +100,7 @@ export async function POST(req: NextRequest) {
     // 2. Dispatch the voice-receptionist agent to the room
     const dispatchClient = getAgentDispatchClient();
     const dispatch = await dispatchClient.createDispatch(roomName, "voice-receptionist", {
-      metadata: JSON.stringify({ caller_name: callerName, caller_context: callerContext }),
+      metadata,
     });
     console.log(`[/api/call] Agent dispatched | dispatch_id=${dispatch.id}`);
 

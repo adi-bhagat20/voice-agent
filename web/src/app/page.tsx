@@ -6,23 +6,33 @@ import styles from "./page.module.css";
 
 type FormState = "idle" | "submitting" | "success" | "error";
 
+const USE_CASES = [
+  { id: "voice", label: "🎙️ AI Voice & Receptionist" },
+  { id: "claims", label: "⚡ Workflow & Claims Automation" },
+  { id: "biomedical", label: "🩺 Healthcare & Biomedical AI" },
+  { id: "vision", label: "👁️ Vision & Threat Detection" },
+];
+
 export default function HomePage() {
   const router = useRouter();
 
   const [formState, setFormState] = useState<FormState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [roomName, setRoomName] = useState("");
+  const [selectedUseCase, setSelectedUseCase] = useState(USE_CASES[0].label);
 
-  const nameRef    = useRef<HTMLInputElement>(null);
-  const phoneRef   = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const companyRef = useRef<HTMLInputElement>(null);
   const contextRef = useRef<HTMLTextAreaElement>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg("");
 
-    const name    = nameRef.current?.value.trim() ?? "";
-    const phone   = phoneRef.current?.value.trim() ?? "";
+    const name = nameRef.current?.value.trim() ?? "";
+    const phone = phoneRef.current?.value.trim() ?? "";
+    const company = companyRef.current?.value.trim() ?? "";
     const context = contextRef.current?.value.trim() ?? "";
 
     // Client-side validation
@@ -43,7 +53,13 @@ export default function HomePage() {
       const res = await fetch("/api/call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, context }),
+        body: JSON.stringify({
+          name,
+          phone,
+          company,
+          useCase: selectedUseCase,
+          context,
+        }),
       });
 
       const data = await res.json();
@@ -66,7 +82,7 @@ export default function HomePage() {
   }
 
   const isSubmitting = formState === "submitting";
-  const isSuccess    = formState === "success";
+  const isSuccess = formState === "success";
 
   return (
     <main className={styles.main}>
@@ -77,14 +93,13 @@ export default function HomePage() {
       <div className={styles.container}>
         {/* Header */}
         <header className={styles.header}>
-          <div className={styles.badge}>🎙️ Live AI Demo</div>
+          <div className={styles.badge}>Acuron AI · Enterprise Voice Demo</div>
           <h1 className={styles.title}>
-            Talk to <span className={styles.highlight}>Aria</span>
+            Experience <span className={styles.highlight}>Aria</span>
           </h1>
           <p className={styles.subtitle}>
-            Acuron AI's voice agent will call you back within&nbsp;
-            <strong>10 seconds</strong>. Powered by Deepgram&nbsp;STT,
-            Groq LLM, and Sarvam TTS.
+            Enter your phone number below and our AI voice agent will call you in&nbsp;
+            <strong>10 seconds</strong> to discuss your enterprise use case.
           </p>
         </header>
 
@@ -119,7 +134,7 @@ export default function HomePage() {
               <div className={styles.field}>
                 <label htmlFor="caller-phone" className={styles.label}>
                   Phone Number
-                  <span className={styles.hint}>(E.164 format)</span>
+                  <span className={styles.hint}>(E.164 format with country code)</span>
                 </label>
                 <input
                   id="caller-phone"
@@ -135,15 +150,52 @@ export default function HomePage() {
               </div>
 
               <div className={styles.field}>
+                <label htmlFor="caller-company" className={styles.label}>
+                  Company / Organization&nbsp;<span className={styles.optional}>(optional)</span>
+                </label>
+                <input
+                  id="caller-company"
+                  ref={companyRef}
+                  type="text"
+                  className={styles.input}
+                  placeholder="e.g. Acme Corp"
+                  autoComplete="organization"
+                  disabled={isSubmitting}
+                  maxLength={100}
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>
+                  Area of Interest
+                </label>
+                <div className={styles.chipGroup} role="radiogroup" aria-label="Area of Interest">
+                  {USE_CASES.map((uc) => (
+                    <button
+                      key={uc.id}
+                      type="button"
+                      className={`${styles.chip} ${selectedUseCase === uc.label ? styles.chipActive : ""}`}
+                      onClick={() => setSelectedUseCase(uc.label)}
+                      disabled={isSubmitting}
+                      role="radio"
+                      aria-checked={selectedUseCase === uc.label}
+                    >
+                      {uc.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.field}>
                 <label htmlFor="caller-context" className={styles.label}>
-                  Context&nbsp;<span className={styles.optional}>(optional)</span>
+                  Goal or Bottleneck&nbsp;<span className={styles.optional}>(optional)</span>
                 </label>
                 <textarea
                   id="caller-context"
                   ref={contextRef}
                   className={styles.textarea}
-                  placeholder="Anything you'd like Aria to know before the call…"
-                  rows={3}
+                  placeholder="e.g. Reducing wait times for high-volume customer inquiries…"
+                  rows={2}
                   disabled={isSubmitting}
                   maxLength={500}
                 />
@@ -166,7 +218,7 @@ export default function HomePage() {
                 {isSubmitting ? (
                   <span className={styles.buttonContent}>
                     <span className={styles.spinner} aria-hidden="true" />
-                    Initiating call…
+                    Connecting to Acuron AI…
                   </span>
                 ) : (
                   <span className={styles.buttonContent}>
@@ -181,11 +233,15 @@ export default function HomePage() {
         {/* Tech stack footer */}
         <footer className={styles.footer}>
           <p className={styles.footerText}>
-            Built with&nbsp;
+            Built for&nbsp;
+            <a href="https://acuronai.com" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
+              Acuron AI
+            </a>
+            &nbsp;· Powered by&nbsp;
             <a href="https://livekit.io" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>LiveKit</a>&nbsp;·&nbsp;
             <a href="https://deepgram.com" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Deepgram</a>&nbsp;·&nbsp;
             <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Groq</a>&nbsp;·&nbsp;
-            <a href="https://sarvam.ai" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Sarvam AI</a>
+            <a href="https://sarvam.ai" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Sarvam</a>
           </p>
         </footer>
       </div>
@@ -197,10 +253,9 @@ function SuccessState({ roomName }: { roomName: string }) {
   return (
     <div className={styles.successState} role="status" aria-live="polite">
       <div className={styles.successIcon}>📞</div>
-      <h2 className={styles.successTitle}>Calling you now!</h2>
+      <h2 className={styles.successTitle}>Aria is calling!</h2>
       <p className={styles.successBody}>
-        Aria is dialling your phone. Pick up within the next few seconds.
-        Redirecting to the status page…
+        Your phone should ring within the next few seconds. Pick up and say hello!
       </p>
       <p className={styles.successRoom}>Room: {roomName}</p>
     </div>

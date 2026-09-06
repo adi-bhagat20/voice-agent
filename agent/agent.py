@@ -1,9 +1,9 @@
 """
-agent.py — LiveKit agent worker for the "Call Me" AI voice demo.
+agent.py — LiveKit agent worker for the Acuron AI Voice Demo.
 
 Architecture:
   LiveKit dispatches this worker when a call is triggered via the web form.
-  The pipeline: Deepgram STT → Groq LLM → Sarvam TTS
+  The pipeline: Deepgram STT (nova-3) → Groq LLM (openai/gpt-oss-20b) → Sarvam TTS (bulbul:v3)
 
 Run locally (text-only, no phone):
   python agent.py console
@@ -28,6 +28,7 @@ from livekit.agents import (
     JobContext,
     WorkerOptions,
     cli,
+    llm as agent_llm,
 )
 
 from livekit.plugins import deepgram, groq, sarvam, silero
@@ -42,7 +43,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("voice-agent")
+logger = logging.getLogger("acuron-voice-agent")
 
 load_dotenv()
 
@@ -52,41 +53,51 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 class ReceptionistAgent(Agent):
     """
-    Stateful agent class.  Stores caller metadata so the greeting can be
-    personalised ("Hi, is this Rohan?") and enforces the hard call timeout.
+    Stateful agent class for Acuron AI. Stores caller metadata, builds dynamic
+    greetings and context, and enforces natural conversation boundaries.
     """
 
-    def __init__(self, caller_name: str, caller_context: str):
+    def __init__(
+        self,
+        caller_name: str = "",
+        caller_company: str = "",
+        caller_use_case: str = "",
+        caller_context: str = "",
+    ):
         self.caller_name = caller_name
+        self.caller_company = caller_company
+        self.caller_use_case = caller_use_case
         self.caller_context = caller_context
         self._call_start: float = 0.0
 
-        # Build the initial greeting based on whether we have a name
-        if caller_name:
-            greeting = persona.GREETING_WITH_NAME.format(
-                name=caller_name,
-                agent=persona.AGENT_NAME,
-                business=persona.BUSINESS_NAME,
-            )
-        else:
-            greeting = persona.GREETING_GENERIC.format(
-                agent=persona.AGENT_NAME,
-                business=persona.BUSINESS_NAME,
-            )
+        # Build the dynamic opening greeting
+        greeting = persona.build_greeting(
+            name=caller_name,
+            company=caller_company,
+            use_case=caller_use_case,
+        )
 
-        # Build the full system prompt, optionally appending caller context
+        # Build the full system prompt with specific caller context
         system = persona.SYSTEM_PROMPT
+        context_parts = []
+        if caller_name:
+            context_parts.append(f"- Caller Name: {caller_name}")
+        if caller_company:
+            context_parts.append(f"- Company: {caller_company}")
+        if caller_use_case:
+            context_parts.append(f"- Requested Solution / Use Case: {caller_use_case}")
         if caller_context:
-            system += (
-                f"\n\nContext the caller provided when they filled the form:\n"
-                f'"{caller_context}"\n'
-                "Work this into the conversation naturally where relevant."
-            )
+            context_parts.append(f"- Specific Problem / Goal: {caller_context}")
+
+        if context_parts:
+            system += "\n\nCaller Context from Request Form:\n" + "\n".join(context_parts)
+            system += "\nNaturally weave this context into the conversation without sounding robotic."
 
         logger.info(
-            "ReceptionistAgent initialised | caller=%r context=%r",
+            "ReceptionistAgent initialized | caller=%r company=%r use_case=%r",
             caller_name,
-            caller_context[:80] if caller_context else "",
+            caller_company,
+            caller_use_case,
         )
 
         super().__init__(instructions=system)
@@ -97,32 +108,32 @@ class ReceptionistAgent(Agent):
     # ------------------------------------------------------------------
 
     async def on_enter(self) -> None:
-        """Called once the agent joins the room.  Speak the opening greeting."""
+        """Called once the agent joins and starts. Speaks the opening greeting."""
         self._call_start = time.time()
-        logger.info("CALL STARTED — speaking greeting to caller=%r", self.caller_name)
+        logger.info("CALL ACTIVE — speaking opening greeting to caller=%r", self.caller_name)
         self.session.say(self._greeting)
 
     async def on_user_turn_completed(
         self,
-        turn_ctx,          # livekit.agents.TurnContext
-        new_message,       # livekit.agents.ChatMessage
+        turn_ctx: agent_llm.ChatContext,
+        new_message: agent_llm.ChatMessage,
     ) -> None:
         """
-        Called after every STT transcription is complete.
-        Log the transcript, check for goodbye intent, check the hard timeout.
+        Called after caller finishes speaking and transcription completes.
+        Checks for goodbye intent and call safety timeouts.
         """
         text = new_message.text_content or ""
-        logger.info("STT RESULT: %r", text)
+        logger.info("CALLER SPOKE: %r", text)
 
         # --- Goodbye intent detection ---
         lower = text.lower()
         for phrase in persona.GOODBYE_PHRASES:
             if phrase in lower:
-                logger.info("Goodbye phrase detected (%r) — ending call", phrase)
+                logger.info("Goodbye intent detected (%r) — wrapping up call", phrase)
                 handle = self.session.generate_reply(
                     instructions=(
-                        "The caller just said something that indicates they want to end the call. "
-                        "Thank them warmly, wish them a great day, and say goodbye."
+                        "The caller wants to end the conversation. "
+                        "Warmly thank them for exploring Acuron AI, wish them a great day, and say goodbye."
                     )
                 )
                 await handle.wait_for_playout()
@@ -130,16 +141,14 @@ class ReceptionistAgent(Agent):
                     await self.session.room_io.room.disconnect()
                 return
 
-        # --- Hard timeout ---
+        # --- Hard timeout check ---
         elapsed = time.time() - self._call_start
         if elapsed >= persona.MAX_CALL_DURATION_SECONDS:
-            logger.info(
-                "Hard timeout reached (%.0fs) — ending call", elapsed
-            )
+            logger.info("Hard timeout reached (%.0fs) — concluding call", elapsed)
             handle = self.session.generate_reply(
                 instructions=(
-                    "We've been talking for a few minutes — time to wrap up. "
-                    "Thank the caller warmly and say a friendly goodbye."
+                    "The demo has reached its 3-minute limit. "
+                    "Politely thank the caller for testing the Acuron AI voice demo and say a friendly goodbye."
                 )
             )
             await handle.wait_for_playout()
@@ -153,8 +162,12 @@ class ReceptionistAgent(Agent):
 # ---------------------------------------------------------------------------
 async def entrypoint(ctx: JobContext) -> None:
     """
-    Main job handler.  Reads caller metadata from room metadata or participant
-    attributes, wires up the STT → LLM → TTS pipeline, and starts the session.
+    Main job handler.
+    1. Connects to LiveKit room.
+    2. Parses caller metadata from the web submission.
+    3. Initializes Deepgram STT, Groq LLM, and Sarvam TTS.
+    4. Waits for caller phone participant to answer.
+    5. Starts voice session and plays personalized greeting.
     """
     logger.info(
         "JOB RECEIVED | room=%s job_id=%s",
@@ -166,60 +179,63 @@ async def entrypoint(ctx: JobContext) -> None:
     # 1. Connect to the room
     # ------------------------------------------------------------------
     await ctx.connect()
-    logger.info("Connected to room %s", ctx.room.name)
+    logger.info("Worker connected to room: %s", ctx.room.name)
 
     # ------------------------------------------------------------------
-    # 2. Extract caller metadata (name + context) from room metadata.
-    #    The web /api/call route encodes these as JSON in room.metadata.
+    # 2. Extract caller metadata from room metadata
     # ------------------------------------------------------------------
     caller_name = ""
+    caller_company = ""
+    caller_use_case = ""
     caller_context = ""
     try:
         meta_raw = ctx.room.metadata or "{}"
         meta = json.loads(meta_raw)
         caller_name = meta.get("caller_name", "")
+        caller_company = meta.get("caller_company", "")
+        caller_use_case = meta.get("caller_use_case", "")
         caller_context = meta.get("caller_context", "")
         logger.info(
-            "Room metadata parsed | name=%r context_len=%d",
+            "Room metadata parsed | name=%r company=%r use_case=%r",
             caller_name,
-            len(caller_context),
+            caller_company,
+            caller_use_case,
         )
     except Exception as exc:
         logger.warning("Failed to parse room metadata: %s", exc)
 
     # ------------------------------------------------------------------
-    # 3. Build the STT / LLM / TTS pipeline using official plugins.
-    #    All credentials come from env vars — never hardcoded.
+    # 3. Build STT / LLM / TTS pipeline
     # ------------------------------------------------------------------
-    logger.info("Initialising STT (Deepgram) / LLM (Groq) / TTS (Sarvam) …")
+    logger.info("Initializing STT (Deepgram) / LLM (Groq) / TTS (Sarvam) …")
 
     try:
         stt = deepgram.STT(
-            model="nova-3",         # Best general-purpose Deepgram model as of 2025
-            language="en-IN",       # Indian English — callers are in India
+            model="nova-3",
+            language="en-IN",
         )
     except Exception as exc:
-        logger.error("Failed to initialise Deepgram STT: %s", exc)
+        logger.error("Failed to initialize Deepgram STT: %s", exc)
         raise
 
     try:
+        # Verified fast model on Groq API
         llm = groq.LLM(
-            model="llama-3.3-70b-versatile",   # Fast, capable Groq model
+            model="openai/gpt-oss-20b",
         )
     except Exception as exc:
-        logger.error("Failed to initialise Groq LLM: %s", exc)
+        logger.error("Failed to initialize Groq LLM: %s", exc)
         raise
 
     try:
         tts = sarvam.TTS(
-            model="bulbul:v3",      # Sarvam's Bulbul TTS model
+            model="bulbul:v3",
             target_language_code="en-IN",
         )
     except Exception as exc:
-        logger.error("Failed to initialise Sarvam TTS: %s", exc)
+        logger.error("Failed to initialize Sarvam TTS: %s", exc)
         raise
 
-    # VAD (voice activity detection) is required for the pipeline
     try:
         vad = silero.VAD.load()
     except Exception as exc:
@@ -227,10 +243,23 @@ async def entrypoint(ctx: JobContext) -> None:
         raise
 
     # ------------------------------------------------------------------
-    # 4. Create the agent and the session
+    # 4. Wait for the phone call to be answered
+    # ------------------------------------------------------------------
+    logger.info("Waiting for caller to answer phone and join room...")
+    try:
+        # Wait up to 45 seconds for the PSTN call to be picked up
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=45.0)
+        logger.info("Caller joined room | identity=%s name=%s", participant.identity, participant.name)
+    except asyncio.TimeoutError:
+        logger.warning("No participant joined within 45s, proceeding with session startup")
+
+    # ------------------------------------------------------------------
+    # 5. Create agent and start session
     # ------------------------------------------------------------------
     agent = ReceptionistAgent(
         caller_name=caller_name,
+        caller_company=caller_company,
+        caller_use_case=caller_use_case,
         caller_context=caller_context,
     )
 
@@ -242,19 +271,18 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     logger.info("Starting AgentSession …")
-
     try:
         await session.start(
             agent,
             room=ctx.room,
         )
-        logger.info("AgentSession running")
+        logger.info("AgentSession active and running")
     except Exception as exc:
         logger.error("AgentSession failed to start: %s", exc)
         raise
 
     # ------------------------------------------------------------------
-    # 5. Keep the worker alive until the room closes or timeout fires
+    # 6. Keep the worker alive until room closes or disconnects
     # ------------------------------------------------------------------
     try:
         disconnect_event = asyncio.Event()
@@ -263,22 +291,17 @@ async def entrypoint(ctx: JobContext) -> None:
     except Exception as exc:
         logger.warning("Room disconnected with error: %s", exc)
     finally:
-        logger.info(
-            "CALL ENDED | room=%s duration=%.1fs",
-            ctx.room.name,
-            time.time() - (agent._call_start or time.time()),
-        )
+        duration = time.time() - (agent._call_start or time.time())
+        logger.info("CALL ENDED | room=%s duration=%.1fs", ctx.room.name, duration)
 
 
 # ---------------------------------------------------------------------------
-# Entry point — `python agent.py start` or `python agent.py console`
+# Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
-            # Named agent — the web trigger dispatches to this specific name.
-            # Must match the agent_name used in the /api/call dispatch call.
             agent_name="voice-receptionist",
         )
     )
