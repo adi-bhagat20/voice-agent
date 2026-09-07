@@ -65,7 +65,7 @@ export default function HomePage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error ?? `HTTP ${res.status}`);
+        throw new Error(data.detail ? `${data.error}: ${data.detail}` : (data.error ?? `HTTP ${res.status}`));
       }
 
       setRoomName(data.roomName);

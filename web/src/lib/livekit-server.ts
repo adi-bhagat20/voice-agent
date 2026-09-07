@@ -24,7 +24,7 @@ export function getLiveKitConfig() {
     apiKey: requireEnv("LIVEKIT_API_KEY"),
     apiSecret: requireEnv("LIVEKIT_API_SECRET"),
     sipTrunkId: requireEnv("SIP_OUTBOUND_TRUNK_ID"),
-    callerPhone: requireEnv("CALLER_PHONE_NUMBER"),
+    callerPhone: process.env.CALLER_PHONE_NUMBER || "",
   };
 }
 
