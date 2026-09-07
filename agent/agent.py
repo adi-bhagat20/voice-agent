@@ -31,6 +31,8 @@ from livekit.agents import (
     llm as agent_llm,
 )
 
+from livekit import rtc
+from livekit.agents.utils import participant as participant_utils
 from livekit.plugins import deepgram, groq, sarvam, silero
 
 import persona
@@ -245,11 +247,33 @@ async def entrypoint(ctx: JobContext) -> None:
     # ------------------------------------------------------------------
     # 4. Wait for the phone call to be answered
     # ------------------------------------------------------------------
-    logger.info("Waiting for caller to answer phone and join room...")
+    logger.info("Waiting for caller to connect to room...")
     try:
-        # Wait up to 45 seconds for the PSTN call to be picked up
+        # Wait up to 45 seconds for participant to join
         participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=45.0)
-        logger.info("Caller joined room | identity=%s name=%s", participant.identity, participant.name)
+        logger.info("Participant joined room | identity=%s kind=%s", participant.identity, participant.kind)
+
+        # If it's a telephone call (SIP), wait until the user answers the phone!
+        if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+            call_status = participant.attributes.get("sip.callStatus")
+            logger.info("SIP initial callStatus: %r", call_status)
+            if call_status != "active":
+                logger.info("Phone is ringing... waiting for caller to answer...")
+                try:
+                    await asyncio.wait_for(
+                        participant_utils.wait_for_participant_attribute(
+                            ctx.room,
+                            identity=participant.identity,
+                            attribute="sip.callStatus",
+                            value="active",
+                        ),
+                        timeout=35.0,
+                    )
+                    logger.info("Caller answered phone! (sip.callStatus == 'active')")
+                    # Brief pause so the audio channel is stable when greeting starts
+                    await asyncio.sleep(0.5)
+                except Exception as err:
+                    logger.warning("Error/timeout waiting for sip.callStatus active: %s", err)
     except asyncio.TimeoutError:
         logger.warning("No participant joined within 45s, proceeding with session startup")
 
