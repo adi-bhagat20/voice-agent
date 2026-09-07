@@ -26,6 +26,7 @@ from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
+    JobProcess,
     WorkerOptions,
     cli,
     llm as agent_llm,
@@ -47,6 +48,11 @@ logging.basicConfig(
 logger = logging.getLogger("acuron-voice-agent")
 
 load_dotenv()
+
+
+def prewarm(proc: JobProcess) -> None:
+    """Prewarm Silero VAD once per process to eliminate call setup latency and memory churn."""
+    proc.userdata["vad"] = silero.VAD.load()
 
 
 # ---------------------------------------------------------------------------
@@ -183,27 +189,27 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info("Worker connected to room: %s", ctx.room.name)
 
     # ------------------------------------------------------------------
-    # 2. Extract caller metadata from room metadata
+    # 2. Extract caller metadata from dispatch job or room metadata
     # ------------------------------------------------------------------
     caller_name = ""
     caller_company = ""
     caller_use_case = ""
     caller_context = ""
     try:
-        meta_raw = ctx.room.metadata or "{}"
+        meta_raw = getattr(ctx.job, "metadata", None) or ctx.room.metadata or "{}"
         meta = json.loads(meta_raw)
         caller_name = meta.get("caller_name", "")
         caller_company = meta.get("caller_company", "")
         caller_use_case = meta.get("caller_use_case", "")
         caller_context = meta.get("caller_context", "")
         logger.info(
-            "Room metadata parsed | name=%r company=%r use_case=%r",
+            "Caller metadata parsed | name=%r company=%r use_case=%r",
             caller_name,
             caller_company,
             caller_use_case,
         )
     except Exception as exc:
-        logger.warning("Failed to parse room metadata: %s", exc)
+        logger.warning("Failed to parse caller metadata: %s", exc)
 
     # ------------------------------------------------------------------
     # 3. Build STT / LLM / TTS pipeline
@@ -238,7 +244,11 @@ async def entrypoint(ctx: JobContext) -> None:
         raise
 
     try:
-        vad = silero.VAD.load()
+        vad = None
+        if hasattr(ctx, "proc") and ctx.proc and "vad" in ctx.proc.userdata:
+            vad = ctx.proc.userdata["vad"]
+        if vad is None:
+            vad = silero.VAD.load()
     except Exception as exc:
         logger.error("Failed to load Silero VAD: %s", exc)
         raise
@@ -278,10 +288,11 @@ async def entrypoint(ctx: JobContext) -> None:
         await session.start(
             agent,
             room=ctx.room,
+            record=False,
         )
         logger.info("AgentSession active and running")
     except Exception as exc:
-        logger.error("AgentSession failed to start: %s", exc)
+        logger.error("AgentSession failed to start: %s", exc, exc_info=True)
         raise
 
     # ------------------------------------------------------------------
@@ -307,8 +318,11 @@ if __name__ == "__main__":
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm,
             agent_name="voice-receptionist",
             port=port,
             host="0.0.0.0",
+            num_idle_processes=0,
+            load_threshold=1.5,
         )
     )
