@@ -230,23 +230,78 @@ All personality, company domain knowledge, and greetings are managed in [`agent/
 
 ---
 
+---
+
 ## 🌐 Production Deployment
 
-### 1. Agent Worker &rarr; [Railway](https://railway.app/)
-1. Create a new Railway project and choose **Deploy from GitHub Repo**.
-2. Select your `voice-agent` repository.
-3. Set the **Root Directory** to `/agent`.
-4. Under **Variables**, add all keys from `agent/.env`.
-5. Railway detects the [`Procfile`](agent/Procfile) (`worker: python agent.py start`) and keeps the worker continuously connected to LiveKit.
+### 1. Agent Worker &rarr; [Render](https://render.com/) (Current Live Deployment)
+1. In Render, create a new **Web Service** connected to your `voice-agent` GitHub repository.
+2. Configure settings:
+   - **Root Directory**: `agent`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python agent.py start`
+   - **Instance Type**: Free (or Starter)
+3. Add Environment Variables in Render:
+   - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+   - `DEEPGRAM_API_KEY`, `GROQ_API_KEY`, `SARVAM_API_KEY`
+4. The worker automatically binds to `0.0.0.0:$PORT` with single-process async thread execution (`JobExecutorType.THREAD`), keeping memory comfortably under 170 MB.
 
-### 2. Web UI &rarr; [Vercel](https://vercel.com/)
+### 2. Agent Worker &rarr; [Railway](https://railway.app/) (Alternative)
+1. Create a new Railway project and deploy from your GitHub repo.
+2. Set **Root Directory** to `/agent`.
+3. Add all keys from `agent/.env`. Railway automatically executes the [`Procfile`](agent/Procfile) (`worker: python agent.py start`).
+
+### 3. Web UI &rarr; [Vercel](https://vercel.com/)
 1. Import the `voice-agent` repository into Vercel.
 2. Set the **Root Directory** to `web`.
-3. Add the environment variables from `web/.env.local`.
+3. Add environment variables:
+   - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+   - `SIP_OUTBOUND_TRUNK_ID`
 4. Deploy!
+
+---
+
+## 🔮 Future Scope & Architecture Roadmap
+
+While this demo delivers a functional end-to-end outbound telephone voice agent, enterprise production deployments require additional layers for data durability, audio fidelity, and intelligence.
+
+### 1. Persistent Database & Call History (PostgreSQL / Supabase)
+* **What's Missing**: Currently, when a call disconnects, all data (duration, caller info, transcript) exists only in transient memory and ephemeral server logs.
+* **Our Approach**:
+  - Integrate **Supabase (PostgreSQL)** with Prisma or Drizzle ORM.
+  - Store full caller sessions: `call_id`, `caller_name`, `phone_number`, `company`, `duration_seconds`, `cost_usd`, and `status`.
+  - Store complete turn-by-turn conversational transcripts in a `JSONB` column for auditability and compliance.
+
+### 2. Telephony Audio Clarity & Codec Optimization
+* **What's Missing**: Indian PSTN phone lines downsample audio to **8 kHz (G.711 &mu;-law/A-law)**. High-frequency TTS output (24 kHz) experiences quantization distortion during carrier transcoding.
+* **Our Approach**:
+  - Implement dynamic audio downsampling in the LiveKit output stream to pre-condition audio to 8 kHz / 16 kHz before sending to the SIP trunk.
+  - Add multi-TTS provider benchmarking (comparing **Sarvam AI Bulbul v3** with **Cartesia Sonic** and **ElevenLabs Flash v2.5**) to select the cleanest acoustic model for telephony.
+
+### 3. Cross-Call State Management & Long-Term Memory (Redis)
+* **What's Missing**: If a prospect calls multiple times or has a multi-stage sales cycle, the agent has no memory of prior conversations.
+* **Our Approach**:
+  - Use **Redis / Upstash** keyed by the caller's E.164 phone number.
+  - Retrieve previous call context (budget discussions, use cases, objections raised) during `entrypoint` and dynamically seed it into the LLM system prompt.
+
+### 4. Post-Call Lead Qualification & CRM Ingestion
+* **What's Missing**: Conversations currently conclude without notifying the sales or engineering team.
+* **Our Approach**:
+  - Trigger an asynchronous post-call LLM extraction pass on the full transcript to extract key qualification criteria: BANT (Budget, Authority, Need, Timeline).
+  - Automatically dispatch webhook alerts to **Slack / Discord** (`#inbound-leads`) and create leads in **HubSpot / Salesforce**.
+
+---
+
+## 🛠️ Engineering Challenges & Post-Mortem Log
+
+For a detailed technical breakdown of real-world bugs, platform limits (including the 512 MB Render OOM fix, the 35-second SIP silence race condition, and model migrations), see:
+
+👉 **[CHALLENGES_AND_LEARNINGS.md](CHALLENGES_AND_LEARNINGS.md)**
 
 ---
 
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
