@@ -6,7 +6,7 @@
 # The [sarvam,deepgram,groq,silero] extras pull in the official plugins.
 
 # Core LiveKit agents framework with required plugins
-livekit-agents[sarvam,deepgram,groq,silero,noise-cancellation]>=1.8.0
+livekit-agents[sarvam,deepgram,groq,silero]>=1.8.0
 
 # Env var loading
 python-dotenv>=1.0.0
