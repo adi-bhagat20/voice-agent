@@ -191,7 +191,23 @@ The following high-priority items are currently in the engineering pipeline:
 
 ---
 
-### 5. Free-Tier Container Spin-Down / Cold Starts
+### 5. Multi-Tier Fault Tolerance, Circuit Breakers & Fallback Handling
+* **The Problem**:
+  - In a real-time voice pipeline, an unhandled exception in any external vendor (e.g. Deepgram WebSocket drop, Groq rate-limit 429, or Sarvam network blip) abruptly terminates the telephone call without warning.
+* **Planned Solution**:
+  1. **Hot-Standby Fallback Cascades**:
+     - **LLM Failover**: Wrap Groq in a circuit breaker that seamlessly fails over to **Cerebras** or **OpenAI (`gpt-4o-mini`)** within <200ms if Groq returns 5xx or exceeds a 2.5s latency deadline.
+     - **TTS Failover**: Secondary fallback route to **Cartesia Sonic** or **ElevenLabs Flash v2.5** if Sarvam WebSocket disconnects mid-call.
+     - **STT Failover**: Deepgram failover to **Azure Speech Services** or **AssemblyAI**.
+  2. **Conversational Self-Healing**:
+     - **Dead-Air / Silence Nudges**: Proactively check in after 8 seconds of microphone silence (*"Are you still with me, [Name]?"*) to prevent awkward hang-ups due to caller hesitation or speakerphone issues.
+     - **Speech Glitch Recovery**: If STT transcription confidence is low, respond with an organic conversational repair (*"Apologies, there was a slight telecom glitch—could you repeat that?"*) rather than hallucinating.
+  3. **Cellular Drop Re-engagement**:
+     - Catch carrier-initiated disconnects and dispatch an automated SMS with a calendar link so the lead is not lost.
+
+---
+
+### 6. Free-Tier Container Spin-Down / Cold Starts
 * **The Problem**:
   - On Render's Free Tier, web services spin down after 15 minutes of inactivity. If a visitor triggers a call while the service is asleep, cold start delays can exceed 50 seconds.
 * **Planned Solution**:
@@ -201,3 +217,4 @@ The following high-priority items are currently in the engineering pipeline:
 ---
 
 *Authored by the Acuron AI Voice Agent Engineering Team — September 2026*
+

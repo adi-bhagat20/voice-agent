@@ -285,7 +285,19 @@ While this demo delivers a functional end-to-end outbound telephone voice agent,
   - Use **Redis / Upstash** keyed by the caller's E.164 phone number.
   - Retrieve previous call context (budget discussions, use cases, objections raised) during `entrypoint` and dynamically seed it into the LLM system prompt.
 
-### 4. Post-Call Lead Qualification & CRM Ingestion
+### 4. Robust Error Handling & Multi-Tier Fallback Architecture
+* **What's Missing**: Currently, if any single AI provider API (Deepgram, Groq, Sarvam) encounters a transient outage, rate-limit (HTTP 429), or WebSocket disconnect during an active call, the pipeline throws an unhandled error and terminates the session.
+* **Our Approach**:
+  - **Provider Fallback Cascades**:
+    - **LLM**: Implement an automated circuit breaker where Groq (`gpt-oss-20b`) fails over to **Cerebras** or **OpenAI (`gpt-4o-mini`)** within <200ms upon error.
+    - **TTS**: If Sarvam AI WebSocket drops, hot-failover immediately to **Cartesia Sonic** or **ElevenLabs Flash v2.5**.
+    - **STT**: Deepgram failover to **Azure Speech Services** or **AssemblyAI**.
+  - **Dead-Air & Silence Recovery**:
+    - Add conversational watchdog timers: If caller microphone is silent for 8 seconds, the agent proactively checks in (*"Are you still there, Aditya?"*). If silence continues past 2 nudges, politely hang up and free the room.
+  - **Telephony Re-Engagement & Drop Recovery**:
+    - If the cellular connection drops mid-call due to carrier packet loss, catch the room disconnect event and automatically trigger a fallback SMS via Twilio/Gupshup: *"Hey Aditya, looks like we got disconnected! Feel free to request another demo here: [link]"*.
+
+### 5. Post-Call Lead Qualification & CRM Ingestion
 * **What's Missing**: Conversations currently conclude without notifying the sales or engineering team.
 * **Our Approach**:
   - Trigger an asynchronous post-call LLM extraction pass on the full transcript to extract key qualification criteria: BANT (Budget, Authority, Need, Timeline).
